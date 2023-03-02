@@ -15,12 +15,20 @@
 
 #include "postgres.h"
 
+#include "fmgr.h"
 #include "funcapi.h"
-#include "miscadmin.h"
+#include "libpq-fe.h"
+#include "libpq-int.h"
 #include "mb/pg_wchar.h"
+#include "miscadmin.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
 #include "utils/builtins.h"
+
+#include "cdb/cdbdisp_query.h"
+#include "cdb/cdbdispatchresult.h"
+#include "cdb/cdbutil.h"
+#include "cdb/cdbvars.h"
 
 /* ----------
  * The max bytes for showing identifiers of MemoryContext.
@@ -174,10 +182,8 @@ pg_get_backend_memory_contexts(PG_FUNCTION_ARGS)
 Datum
 pg_log_backend_memory_contexts(PG_FUNCTION_ARGS)
 {
-	int			pid = PG_GETARG_INT32(0);
-	PGPROC	   *proc;
-
-	proc = BackendPidGetProc(pid);
+	int		pid = PG_GETARG_INT32(0);
+	PGPROC		*proc = BackendPidGetProc(pid);
 
 	/*
 	 * BackendPidGetProc returns NULL if the pid isn't valid; but by the time
@@ -208,4 +214,87 @@ pg_log_backend_memory_contexts(PG_FUNCTION_ARGS)
 	}
 
 	PG_RETURN_BOOL(true);
+}
+
+Datum
+gp_log_backend_memory_contexts(PG_FUNCTION_ARGS)
+{
+
+	int  targetSessionId;
+	int  targetContentId;
+	CdbPgResults cdb_pgresults = {NULL, 0};
+	char		cmd[255];
+	int success = true;
+
+	if (Gp_role == GP_ROLE_UTILITY)
+	{
+		ereport(ERROR,
+				(errmsg("this function does not work in utility mode")));
+		PG_RETURN_BOOL(false);
+	}
+
+	if (PG_NARGS() == 2)
+	{
+	targetSessionId = PG_GETARG_INT32(0);
+	targetContentId = PG_GETARG_INT32(1);
+	}
+	else {
+		targetSessionId = PG_GETARG_INT32(0);
+	}
+
+	if (Gp_role == GP_ROLE_DISPATCH)
+	{
+    	/*
+    	 * AJR TODO --Make sure the session exists before dispatching?
+    	 */
+		// If session doesn't exist, throw warning and return false
+		// how to check if session exists?
+
+		if (PG_NARGS() == 2)
+		{
+			sprintf(cmd, "select gp_log_backend_memory_contexts(%d,%d)", targetSessionId, targetContentId);
+			CdbDispatchCommandToSegments(cmd, DF_NONE, list_make1_int(targetContentId), &cdb_pgresults);
+		}
+		else
+		{
+			sprintf(cmd, "select gp_log_backend_memory_contexts(%d)", targetSessionId);
+			CdbDispatchCommand(cmd, DF_NONE, &cdb_pgresults);
+		}
+
+		for (int resultno = 0; resultno < cdb_pgresults.numResults; resultno++)
+		{
+			struct pg_result *pgresult = cdb_pgresults.pg_results[resultno];
+			if (pgresult->resultStatus != PGRES_TUPLES_OK)
+			{
+				success = false;
+			}
+		}
+
+	cdbdisp_clearCdbPgResults(&cdb_pgresults);
+	PG_RETURN_INT32(success);
+	}
+	else	/* Gp_role == EXECUTE */
+	{
+		Assert(Gp_role == GP_ROLE_EXECUTE);
+
+		if (targetSessionId != gp_session_id)
+		{
+			/*
+			 * bail without triggering logging if we're not targeting this session
+			 */
+			PG_RETURN_BOOL(true);
+		}
+
+		if ((PG_NARGS() == 2) && (targetContentId != GpIdentity.segindex))
+		{
+			/*
+			 * bail without triggering logging if we're not targeting this segment
+			 */
+			PG_RETURN_BOOL(true);
+		}
+
+		success = DatumGetBool(DirectFunctionCall1(pg_log_backend_memory_contexts, MyProcPid));
+
+		PG_RETURN_BOOL(success);
+	}
 }

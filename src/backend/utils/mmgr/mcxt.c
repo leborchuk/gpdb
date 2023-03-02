@@ -689,7 +689,7 @@ MemoryContextStatsDetail(MemoryContext context, int max_children,
 
 	if (print_to_stderr)
 		fprintf(stderr,
-				"Grand total: %zu bytes in %zd blocks; %zu free (%zd chunks); %zu used\n",
+				"AJR -- Grand total: %zu bytes in %zd blocks; %zu free (%zd chunks); %zu used\n",
 				grand_totals.totalspace, grand_totals.nblocks,
 				grand_totals.freespace, grand_totals.freechunks,
 				grand_totals.totalspace - grand_totals.freespace);
@@ -708,7 +708,7 @@ MemoryContextStatsDetail(MemoryContext context, int max_children,
 		ereport(LOG_SERVER_ONLY,
 				(errhidestmt(true),
 				 errhidecontext(true),
-				 errmsg_internal("Grand total: %zu bytes in %zd blocks; %zu free (%zd chunks); %zu used",
+				 errmsg_internal("AJR -- Grand total: %zu bytes in %zd blocks; %zu free (%zd chunks); %zu used",
 								 grand_totals.totalspace, grand_totals.nblocks,
 								 grand_totals.freespace, grand_totals.freechunks,
 								 grand_totals.totalspace - grand_totals.freespace)));
